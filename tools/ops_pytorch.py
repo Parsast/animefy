@@ -3,76 +3,93 @@ import torch.nn as nn
 import torch
 
 
-class conv_LADE_Lrelu(nn.Module):
-    def __init__(self, inputs, filters, kernel_size=3, strides=1, name='conv', padding='VALID', Use_bias = None,  alpha=0.2):
-        super(nn.Module, self).__init__()
-        self.inputs = inputs
-        self.filters = filters
+class CustomConv2d(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding_type='reflect', use_bias=True):
+        super(CustomConv2d, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
         self.kernel_size = kernel_size
-        self.strides = strides
-        self.padding = padding
-        self.Use_bias = Use_bias
-        self.alpha = alpha
-        
-        
-    def Conv2d(self, padding='VALID', Use_bias = None, activation_fn=None):
-        if (self.kernel_size - self.strides) % 2 == 0:
-            pad = (self.kernel_size - self.strides) // 2
-            pad_top, pad_bottom, pad_left, pad_right= pad, pad, pad, pad
+        self.stride = stride
+        self.padding_type = padding_type
+        self.use_bias = use_bias
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, bias=use_bias, padding=0)  # No auto padding
+
+    def forward(self, x):
+        # Calculate padding
+        if (self.kernel_size - self.stride) % 2 == 0:
+            pad = (self.kernel_size - self.stride) // 2
+            padding = (pad, pad, pad, pad)  # Padding for left, right, top, bottom
         else:
-            pad = (self.kernel_size - self.strides) // 2
-            pad_bottom, pad_right =pad, pad,
-            pad_top, pad_left = self.kernel_size - self.strides - pad_bottom,  self.kernel_size - self.strides - pad_right
+            pad = (self.kernel_size - self.stride) // 2
+            pad_extra = (self.kernel_size - self.stride) - pad
+            padding = (pad, pad + pad_extra, pad, pad + pad_extra)  # Adjusted for asymmetric padding
         
-        F.pad(self.inputs, (pad_left, pad_right, pad_top, pad_bottom), mode='reflect')
-        return nn.Conv2d(self.inputs, self.filters, self.kernel_size, self.strides, self.padding, self.Use_bias)
-    
-    def LADE(self, x):
-        eps = 1e-5
-        ch = x.shape[-1]
-        tx = self.conv2d(x, ch, 1, 1)
-        t_mean = tx.mean(dim= (1,2),keep_dims=True)
-        x_mean = x.mean(dim= (1,2),keep_dims=True)
-        t_var = tx.var(dim= (1,2),keep_dims=True, unbiased=False)
-        x_var = x.var(dim= (1,2),keep_dims=True, unbiased=False)
-        x_in = (x - in_mean) / (torch.sqrt(x_var + eps))
-        x = x_in * (torch.sqrt(t_sigma + eps)) + t_mean
+        # Apply padding
+        if self.padding_type == 'reflect':
+            x = F.pad(x, padding, mode='reflect')
+        elif self.padding_type == 'zero':
+            x = F.pad(x, padding, mode='constant', value=0)
+        
+        # Apply convolution
+        x = self.conv(x)
         return x
-    
-    def conv_LADE_Lrelu(self):
-        x = self.Conv2d()
-        x = self.LADE(x)
-        return F.leaky_relu(x, self.alpha)
+
+
+class LADE(nn.Module):
+    def __init__(self, channels):
+        super(LADE, self).__init__()
+        self.conv = CustomConv2d(channels, channels, kernel_size=1, use_bias=False)
+
+    def forward(self, x):
+        eps = 1e-5
+        tx = self.conv(x)
+        t_mean = tx.mean([2, 3], keepdim=True)
+        t_var = tx.var([2, 3], keepdim=True, unbiased=False)
+        x_mean = x.mean([2, 3], keepdim=True)
+        x_var = x.var([2, 3], keepdim=True, unbiased=False)
+        x_normalized = (x - x_mean) / torch.sqrt(x_var + eps)
+        x_rescaled = x_normalized * torch.sqrt(t_var + eps) + t_mean
+        return x_rescaled
+
+
+class ConvLADELReLU(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, use_bias=True, alpha=0.2):
+        super(ConvLADELReLU, self).__init__()
+        self.conv = CustomConv2d(in_channels, out_channels, kernel_size, stride, use_bias=use_bias)
+        self.lade = LADE(out_channels)
+        self.alpha = alpha
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.lade(x)
+        x = F.leaky_relu(x, negative_slope=self.alpha)
+        return x
 
 
 
-class External_attention_v3(nn.Module):
-    def __init__(self, x, is_training, k=128):
-        super(nn.Module, self).__init__()
-        sef.idn = x
-        self.x = x
-        self.is_training = is_training
+class ExternalAttentionV3(nn.Module):
+    def __init__(self, channel, k=128):
+        super(ExternalAttentionV3, self).__init__()
         self.k = k
-        self.b, self.h, self.w, self.c = x.shape
-        self.w_kernel = nn.Conv2d(self.c, self.k, 1, 1, padding='VALID')
-        nn.init.xavier_uniform_(self.w_kernel.weight)
-        self.x = Conv2D(self.x, self.c, 1, 1,)
-        self.x = self.x.view(self.b, -1, self.c)
-        self.attn = F.conv1d(self.x, self.w_kernel.weight, stride=1, padding='VALID')
+        self.channel = channel
+        self.conv1 = nn.Conv2d(channel, channel, kernel_size=1)
+        self.conv2 = nn.Conv1d(channel, k, kernel_size=1)  # Attention mechanism
+        self.conv_transpose = nn.Conv1d(k, channel, kernel_size=1)  # Transposed operation
+        self.conv3 = nn.Conv2d(channel, channel, kernel_size=1)
+        self.batch_norm = nn.BatchNorm2d(channel)
         
-    def forward(self):
-        self.attn = F.softmax(self.attn, dim=1)
-        self.attn = self.attn / (1e-9 + self.attn.sum(dim=2, keepdim=True))
-
-        self.w_kernel = nn.Conv2d(self.k,self.c, 1, 1, padding='VALID')
-        nn.init.xavier_uniform_(self.w_kernel.weight)
-        self.x = Conv2D(self.x, self.c, 1, 1)
-        bn_layer = x.batch_norm_wrapper(x, self.is_training)
-        self.x = bn_layer.forward(self.x, self.is_training)
-        self.x = self.x + self.idn
-        self.x = F.leaky_relu(self.x, 0.2)
-        return self.x
-
-    
-    
-
+    def forward(self, x):
+        identity = x
+        x = self.conv1(x)
+        b, c, h, w = x.size()
+        x = x.view(b, c, -1)
+        att = self.conv2(x)
+        att = F.softmax(att, dim=1)
+        att = att / (1e-9 + torch.sum(att, dim=2, keepdim=True))
+        x = self.conv_transpose(att)
+        x = x.view(b, c, h, w)
+        x = self.conv3(x)
+        x = self.batch_norm(x)
+        x = F.leaky_relu(x + identity)  # 
+        return x
+        
