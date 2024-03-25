@@ -4,6 +4,7 @@ import torch
 from torch.nn.utils.parametrizations import spectral_norm
 from torchvision.models import vgg19
 from torch.nn import L1Loss
+from pytorch_color_ops import  rgb_to_lab
 
 
 class CustomConv2d(nn.Module):
@@ -153,3 +154,76 @@ class con_loss(nn.Module):
         loss = self.criterion(x.to(self.device), y.to(self.device))
         return self.weight * loss
 
+def gram(x):
+    b, c, h, w = x.size()
+    f = x.view(b, c, h * w)
+    f_T = f.transpose(1, 2)
+    G = f.bmm(f_T) / float((c * h * w))
+    return G
+
+class style_loss_decentralization_3(nn.Module):
+    def __init__(self, device='cpu', weight=[1.0, 1.0, 1.0]):
+        super(style_loss_decentralization_3, self).__init__()
+        self.device = device
+        self.weight = weight
+        self.criterion = L1Loss()
+
+    def forward(self, style, fake):
+        style_2 = VGG_FeatureExtractor(5, self.device)(style)
+        style_3 = VGG_FeatureExtractor(10, self.device)(style)
+        style_4 = VGG_FeatureExtractor(15, self.device)(style)
+        fake_2 = VGG_FeatureExtractor(5, self.device)(fake)
+        fake_3 = VGG_FeatureExtractor(10, self.device)(fake)
+        fake_4 = VGG_FeatureExtractor(15, self.device)(fake)
+        
+        # Decentralization
+        dim = [2, 3]
+        style_2 = style_2 - style_2.mean(dim=dim, keepdim=True)
+        fake_2 = fake_2 - fake_2.mean(dim=dim, keepdim=True)
+        style_3 = style_3 - style_3.mean(dim=dim, keepdim=True)
+        fake_3 = fake_3 - fake_3.mean(dim=dim, keepdim=True)
+        style_4 = style_4 - style_4.mean(dim=dim, keepdim=True)
+        fake_4 = fake_4 - fake_4.mean(dim=dim, keepdim=True)
+        
+        # Calculate loss
+        loss4_4 = self.criterion(gram(style_4), gram(fake_4)) / style_4.size(1)
+        loss3_3 = self.criterion(gram(style_3), gram(fake_3)) / style_3.size(1)
+        loss2_2 = self.criterion(gram(style_2), gram(fake_2)) / style_2.size(1)
+        
+        # Apply weights
+        return self.weight[0] * loss2_2, self.weight[1] * loss3_3, self.weight[2] * loss4_4
+
+class region_smoothing_loss(nn.Module):
+    def __init__(self, device='cpu', weight=0.5):
+        super(region_smoothing_loss, self).__init__()
+        self.device = device
+        self.weight = weight
+        self.criterion = VGG_LOSS(device)
+
+    def forward(self, x, y):
+        loss = self.criterion(x.to(self.device), y.to(self.device))
+        return self.weight * loss
+        
+class color_loss(nn.Module):
+    def __init__(self, device='cpu', weight=0.5):
+        super(color_loss, self).__init__()
+        self.device = device
+        self.weight = weight
+        self.criterion = L1Loss()
+
+    def forward(self, photo, fake):
+        # Normalize the photos to [0, 1] range
+        photo = (photo + 1.0) / 2.0
+        fake = (fake + 1.0) / 2.0
+
+        # Convert RGB to LAB
+        photo_lab = rgb_to_lab(photo)  
+        fake_lab = rgb_to_lab(fake)
+
+        # Calculate the loss
+        loss = 2.0 * self.criterion(photo_lab[:, 0, :, :] / 100.0, fake_lab[:, 0, :, :] / 100.0) + \
+               self.criterion(photo_lab[:, 1, :, :] + (128.0 / 255.0), fake_lab[:, 1, :, :] + (128.0 / 255.0)) + \
+               self.criterion(photo_lab[:, 2, :, :] + (128.0 / 255.0), fake_lab[:, 2, :, :] + (128.0 / 255.0))
+        
+        # Apply the weight
+        return self.weight * loss
