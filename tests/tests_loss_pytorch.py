@@ -3,7 +3,7 @@ import torch
 from torch.autograd import Variable
 from torchvision.transforms import functional as F
 from torch.testing import assert_allclose
-from ops_pytorch import VGG_FeatureExtractor, VGG_LOSS, con_loss, style_loss_decentralization_3, color_loss, total_variation_loss
+from ops_pytorch import VGG_FeatureExtractor, VGG_LOSS, con_loss, style_loss_decentralization_3, color_loss, total_variation_loss, discriminator_loss
 
 
 class TestVGGFunctions(unittest.TestCase):
@@ -148,6 +148,35 @@ class TestTotalVariationLoss(unittest.TestCase):
         new_loss = new_tv_loss(self.dummy_image)
         self.assertAlmostEqual(initial_loss.item() * 2, new_loss.item(), places=5, msg="Loss should scale with weight")
 
+
+class TestDiscriminatorLoss(unittest.TestCase):
+    def setUp(self):
+        self.loss_fn = discriminator_loss()
+
+    def test_loss_with_real_ones(self):
+        # Testing with real values close to 1 (the target for real)
+        real = Variable(torch.ones(5, 3, 256, 256) * 0.9, requires_grad=True)
+        fake = Variable(torch.zeros(5, 3, 256, 256), requires_grad=True)  # Fake values far from 0.1 (the target for fake)
+        loss = self.loss_fn(real, fake)
+        self.assertTrue(loss.item() > 0)
+
+    def test_loss_with_fake_ones(self):
+        # Testing with fake values close to 0 (opposite of the target for fake)
+        real = Variable(torch.zeros(5, 3, 256, 256), requires_grad=True)  # Real values far from 0.9 (the target for real)
+        fake = Variable(torch.ones(5, 3, 256, 256) * 0.1, requires_grad=True)
+        loss = self.loss_fn(real, fake)
+        self.assertTrue(loss.item() > 0)
+
+    def test_loss_zero_gradient(self):
+        # Testing that loss provides non-zero gradients to both real and fake inputs
+        real = Variable(torch.ones(5, 3, 256, 256) * 0.9, requires_grad=True)
+        fake = Variable(torch.ones(5, 3, 256, 256) * 0.1, requires_grad=True)
+        loss = self.loss_fn(real, fake)
+        loss.backward()
+        self.assertIsNotNone(real.grad)
+        self.assertIsNotNone(fake.grad)
+
+    
 
 if __name__ == '__main__':
     unittest.main(argv=[''], exit=False)

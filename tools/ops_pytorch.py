@@ -128,6 +128,35 @@ class generator_loss(nn.Module):
         loss = self.criterion(fake, target)
         return loss
 
+class discriminator_loss(nn.Module):
+    def __init__(self):
+        super(discriminator_loss, self).__init__()
+        self.criterion = nn.MSELoss()
+
+    def forward(self, real, fake):
+        # The target tensor for real inputs is a tensor full of 0.9 with the same shape as 'real'
+        target_real = 0.9 * torch.ones_like(real)
+        loss_real = self.criterion(real, target_real)
+        
+        # The target tensor for fake inputs is a tensor full of 0.1 with the same shape as 'fake'
+        target_fake = 0.1 * torch.ones_like(fake)
+        loss_fake = self.criterion(fake, target_fake)
+        
+        # Calculate the total loss, combining real and fake with specified weights
+        loss = (0.5 * loss_real) + (1.0 * loss_fake)
+        return loss
+
+class discriminator_loss_346(nn.Module):
+    def __init__(self):
+        super(discriminator_loss_346, self).__init__()
+        self.criterion = nn.MSELoss()  # Use Mean Squared Error Loss
+
+    def forward(self, fake):
+        # The target tensor is a tensor full of 0.1 with the same shape as 'fake'
+        target_fake = 0.1 * torch.ones_like(fake)
+        loss_fake = self.criterion(fake, target_fake)
+        return loss_fake
+
 class VGG_FeatureExtractor(nn.Module):
     def __init__(self, layer, device='cpu'):
         super(VGG_FeatureExtractor, self).__init__()
@@ -242,7 +271,7 @@ class total_variation_loss(nn.Module):
         super(total_variation_loss, self).__init__()
         self.weight = weight
         self.criterion = MSELoss(reduction='mean')  
-        
+
     def forward(self, x):
         # Calculate the total variation loss
         dh = x[:, :, :-1, :] - x[:, :, 1:, :]
