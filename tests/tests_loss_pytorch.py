@@ -1,8 +1,9 @@
 import unittest
 import torch
+from torch.autograd import Variable
 from torchvision.transforms import functional as F
 from torch.testing import assert_allclose
-from ops_pytorch import VGG_FeatureExtractor, VGG_LOSS, con_loss, style_loss_decentralization_3, color_loss
+from ops_pytorch import VGG_FeatureExtractor, VGG_LOSS, con_loss, style_loss_decentralization_3, color_loss, total_variation_loss
 
 
 class TestVGGFunctions(unittest.TestCase):
@@ -112,6 +113,40 @@ class TestColorLoss(unittest.TestCase):
         
         self.assertIsNotNone(self.photo.grad, "Gradients should be computed for photo.")
         self.assertIsNotNone(self.fake.grad, "Gradients should be computed for fake.")
+
+
+class TestTotalVariationLoss(unittest.TestCase):
+    def setUp(self):
+        # Total Variation Loss expects floating point inputs
+        self.dummy_image = Variable(torch.rand(2, 3, 256, 256), requires_grad=True)
+        self.weight = 0.5
+        self.tv_loss = total_variation_loss(weight=self.weight)
+
+    def test_zero_variation(self):
+        # For an image with no variation (constant image), the loss should be zero
+        no_variation_image = torch.full((2, 3, 256, 256), 0.5, requires_grad=True)
+        loss = self.tv_loss(no_variation_image)
+        self.assertAlmostEqual(loss.item(), 0.0, places=5, msg="Loss should be zero for image with no variation")
+
+    def test_known_variation(self):
+        # For an image with known variation, the loss should be positive and not zero
+        loss = self.tv_loss(self.dummy_image)
+        self.assertGreater(loss.item(), 0.0, msg="Loss should be positive for image with variation")
+
+    def test_loss_changes(self):
+        # Changing the image should change the loss
+        initial_loss = self.tv_loss(self.dummy_image)
+        self.dummy_image.data = 2*self.dummy_image.data + 0.8
+        new_loss = self.tv_loss(self.dummy_image)
+        self.assertNotEqual(initial_loss.item(), new_loss.item(), "Loss should change when the image is perturbed")
+
+    def test_weight_effect(self):
+        # The loss should scale linearly with the weight
+        initial_loss = self.tv_loss(self.dummy_image)
+        new_weight = 2 * self.weight
+        new_tv_loss = total_variation_loss(weight=new_weight)
+        new_loss = new_tv_loss(self.dummy_image)
+        self.assertAlmostEqual(initial_loss.item() * 2, new_loss.item(), places=5, msg="Loss should scale with weight")
 
 
 if __name__ == '__main__':

@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch
 from torch.nn.utils.parametrizations import spectral_norm
 from torchvision.models import vgg19
-from torch.nn import L1Loss
+from torch.nn import L1Loss, MSELoss
 from pytorch_color_ops import  rgb_to_lab
 
 
@@ -117,7 +117,16 @@ class ExternalAttentionV3(nn.Module):
 
 # loss function
 
+class generator_loss(nn.Module):
+    def __init__(self):
+        super(generator_loss, self).__init__()
+        self.criterion = nn.MSELoss()  # Use Mean Squared Error Loss
 
+    def forward(self, fake):
+        # The target tensor is a tensor full of 0.9 with the same shape as 'fake'
+        target = 0.9 * torch.ones_like(fake) 
+        loss = self.criterion(fake, target)
+        return loss
 
 class VGG_FeatureExtractor(nn.Module):
     def __init__(self, layer, device='cpu'):
@@ -226,4 +235,26 @@ class color_loss(nn.Module):
                self.criterion(photo_lab[:, 2, :, :] + (128.0 / 255.0), fake_lab[:, 2, :, :] + (128.0 / 255.0))
         
         # Apply the weight
+        return self.weight * loss
+
+class total_variation_loss(nn.Module):
+    def __init__(self, weight=0.5):
+        super(total_variation_loss, self).__init__()
+        self.weight = weight
+        self.criterion = MSELoss(reduction='mean')  
+        
+    def forward(self, x):
+        # Calculate the total variation loss
+        dh = x[:, :, :-1, :] - x[:, :, 1:, :]
+        dw = x[:, :, :, :-1] - x[:, :, :, 1:]
+        
+        # The size variables are used to normalize the loss terms
+        size_dh = dh.numel()
+        size_dw = dw.numel()
+        
+        dh_loss = self.criterion(dh, torch.zeros_like(dh))
+        dw_loss = self.criterion(dw, torch.zeros_like(dw))
+
+        loss = (dh_loss / size_dh) + (dw_loss / size_dw)
+
         return self.weight * loss
