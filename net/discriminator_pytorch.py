@@ -6,7 +6,7 @@ from ops_pytorch import CustomConv2d, LADE_D
 
 
 class D_net(nn.Module):
-    def __init__(self,input, ch, sn=False):
+    def __init__(self,input, ch, sn=True):
         super(D_net, self).__init__()
         self.in_channels = input
         self.channel = ch

@@ -45,7 +45,10 @@ class AnimeDataset(Dataset):
 
         # Convert to PyTorch tensors
         image1 = torch.from_numpy(image1).permute(2, 0, 1).float()  
-        image2 = torch.from_numpy(image2).permute(2, 0, 1).float()  
+        image2 = torch.from_numpy(image2).permute(2, 0, 1).float()
+        
+        # image1 = torch.zeros_like(image1)
+        # image2 = torch.zeros_like(image2)  
 
         return image1, image2 
 

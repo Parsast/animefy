@@ -4,7 +4,7 @@ import torch
 from torch.nn.utils.parametrizations import spectral_norm
 from torchvision.models import vgg19, VGG19_Weights
 from torch.nn import L1Loss, MSELoss
-from pytorch_color_ops import  rgb_to_lab
+from tools.pytorch_color_ops import  rgb_to_lab
 import numpy as np
 from joblib import Parallel, delayed
 from skimage import segmentation, color
@@ -14,7 +14,7 @@ from tools.L0_smoothing import L0Smoothing
 
 
 class CustomConv2d(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding_type='reflect', use_bias=True, sn=False):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding_type='reflect', use_bias=True, sn=True):
         super(CustomConv2d, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -289,8 +289,8 @@ class total_variation_loss(nn.Module):
         dw = x[:, :, :, :-1] - x[:, :, :, 1:]
         
         # The size variables are used to normalize the loss terms
-        size_dh = dh.numel() / 1000000.0  # Divide by 1000 to reduce the weight of the vertical loss
-        size_dw = dw.numel() / 1000000.0  # Divide by 1000 to reduce the weight of the horizontal loss
+        size_dh = dh.numel() / 1000.0  # Divide by 1000 to reduce the weight of the vertical loss
+        size_dw = dw.numel() / 1000.0  # Divide by 1000 to reduce the weight of the horizontal loss
         
         dh_loss = self.criterion(dh, torch.zeros_like(dh))
         dw_loss = self.criterion(dw, torch.zeros_like(dw))
